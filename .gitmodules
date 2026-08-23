@@ -1,0 +1,6 @@
+[submodule "creator"]
+	path = creator
+	url = git@github.com:vGerJ02/creator.git
+[submodule "creator-gateway-esp32"]
+	path = creator-gateway-esp32
+	url = git@github.com:vGerJ02/creator-gateway-esp32.git
