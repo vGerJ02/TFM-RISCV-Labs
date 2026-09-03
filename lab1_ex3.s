@@ -38,7 +38,7 @@ register_text:
 
 .text
 # Place the first program instruction at memory offset 0x200.
-.org 0x200
+# .org 0x200
 .globl main
 main:
     # Logical register usage:
