@@ -31,24 +31,25 @@
 #   t0 = temporary comparison value
 #   t1 = address of the expected digit
 
-.data
+.data                        # Stored passcode and LCD text.
 passcode:
-    .byte '1', '2', '3', '4'
+    .byte '1', '2', '3', '4'  # Four ASCII bytes, one per digit
 enter_msg:
-    .asciz "Enter code:"
+    .asciz "Enter code:"     # .asciz adds the zero byte that ends a string.
 granted_msg:
     .asciz "Access granted"
 denied_msg:
     .asciz "Denied"
 hidden_char_msg:
-    .asciz "#"
+    .asciz "#"               # Mask printed instead of each entered digit.
 
-.text
+.text                        # Executable instructions start here.
+# Initialize the board, LCD, and keypad once before accepting entries.
 main:
-    jal ra, initArduino
+    jal ra, initArduino      # Initialize the Arduino support used by wrappers.
 
     li a0, 200
-    jal ra, delay
+    jal ra, delay            # delay takes a duration in milliseconds in a0.
 
     # LCD: SDA=5, SCL=6, default address 0x27, 16x2.
     li a0, 5
@@ -66,21 +67,22 @@ main:
     li a7, 7
     jal ra, keypad_begin_4x4
 
-    li a0, 50
+    li a0, 50                # Keypad debounce interval in milliseconds.
     jal ra, keypad_set_debounce_time
 
+# Start a fresh attempt, either after a result or after pressing '*'.
 reset_entry:
     # Reset cursor column/count and valid flag.
-    li s0, 0
-    li s2, 1
-    la s3, passcode
+    li s0, 0                 # No digits have been entered yet.
+    li s2, 1                 # Assume correct until a digit fails to match.
+    la s3, passcode          # Base address used to look up expected digits.
 
-    jal ra, lcd_i2c_clear
+    jal ra, lcd_i2c_clear    # Remove the previous entry or result.
 
-    li a0, 0
-    li a1, 0
+    li a0, 0                 # lcd_i2c_set_cursor: a0 = column, a1 = line.
+    li a1, 0                 # First display line.
     jal ra, lcd_i2c_set_cursor
-    la a0, enter_msg
+    la a0, enter_msg         # lcd_i2c_print takes a string address in a0.
     jal ra, lcd_i2c_print
 
     # Put cursor at beginning of second line.
@@ -88,11 +90,12 @@ reset_entry:
     li a1, 1
     jal ra, lcd_i2c_set_cursor
 
+# Poll until the keypad reports a key, then handle clear/digit/ignored keys.
 read_key_loop:
     jal ra, keypad_get_key
-    beqz a0, read_key_loop
+    beqz a0, read_key_loop   # Zero means no new key is available.
 
-    mv s1, a0
+    mv s1, a0                # Save the key code; wrapper calls may reuse a0.
 
     # '*' clears the current typed values.
     li t0, '*'
@@ -100,16 +103,17 @@ read_key_loop:
 
     # Ignore non-digit keys for password checking and display.
     li t0, '0'
-    blt s1, t0, wait_and_read
+    blt s1, t0, wait_and_read # ASCII codes below '0' are not digits.
     li t0, '9'
-    bgt s1, t0, wait_and_read
+    bgt s1, t0, wait_and_read # ASCII codes above '9' are not digits.
 
     # Compare this digit with the character stored at passcode[s0].
-    add t1, s3, s0
-    lbu t0, 0(t1)
-    beq s1, t0, print_digit
-    li s2, 0
+    add t1, s3, s0           # Each .byte is 1 byte: byte offset = digit index.
+    lbu t0, 0(t1)            # Load the expected ASCII digit from that address.
+    beq s1, t0, print_digit  # Matching digits leave valid_so_far unchanged.
+    li s2, 0                 # A mismatch stays recorded until reset_entry.
 
+# Display one mask character, even if this digit did not match the passcode.
 print_digit:
     # Hide the actual typed digit by showing '#' on line 1 at column s0.
     mv a0, s0
@@ -119,24 +123,27 @@ print_digit:
     la a0, hidden_char_msg
     jal ra, lcd_i2c_print
 
-    addi s0, s0, 1
+    addi s0, s0, 1           # Advance the count and the next cursor column.
 
     # After 4 digits, show result.
     li t0, 4
-    beq s0, t0, show_result
+    beq s0, t0, show_result  # Check the result before reading a fifth digit.
 
+# Pause after a digit or an ignored key, then poll for another key.
 wait_and_read:
     li a0, 250
     jal ra, delay
     j read_key_loop
 
+# All four digits are entered; the saved flag selects the result message.
 show_result:
-    li a0, 700
+    li a0, 700               # Keep the four mask characters visible briefly.
     jal ra, delay
 
-    beqz s2, show_denied
-    j show_granted
+    beqz s2, show_denied     # Zero means at least one digit was incorrect.
+    j show_granted           # Otherwise all four digits matched 1234.
 
+# Show success on the first line, then prepare another attempt.
 show_granted:
     jal ra, lcd_i2c_clear
     li a0, 0
@@ -145,10 +152,11 @@ show_granted:
     la a0, granted_msg
     jal ra, lcd_i2c_print
 
-    li a0, 1500
+    li a0, 1500              # Leave the result visible for 1.5 seconds.
     jal ra, delay
     j reset_entry
 
+# Show failure for the same duration; attempts are unlimited.
 show_denied:
     jal ra, lcd_i2c_clear
     li a0, 0
@@ -161,6 +169,7 @@ show_denied:
     jal ra, delay
     j reset_entry
 
+# '*' discards the whole entry, including any recorded mismatch.
 clear_and_wait:
     li a0, 250
     jal ra, delay
